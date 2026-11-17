@@ -20,9 +20,8 @@ local hasFileSystem = pcall(function()
 end)
 
 local currentSensitivity = CONFIG.DEFAULT_SENSITIVITY
-local originalMouseDelta = nil
-local cameraInputModule = nil
 local hookActive = false
+local activeConnections = {}
 
 if hasFileSystem then
     pcall(function()
@@ -54,11 +53,11 @@ local function setupCameraHook()
         if cameraModule then
             local cameraInput = cameraModule:FindFirstChild("CameraInput")
             if cameraInput then
-                cameraInputModule = require(cameraInput)
-                if cameraInputModule and cameraInputModule.getRotation then
+                local cameraInputModule = require(cameraInput)
+                if cameraInputModule and type(cameraInputModule.getRotation) == "function" then
                     local originalGetRotation = cameraInputModule.getRotation
-                    cameraInputModule.getRotation = function(disableRotation)
-                        local rotation = originalGetRotation(disableRotation)
+                    cameraInputModule.getRotation = function(disableRotation, ...)
+                        local rotation = originalGetRotation(disableRotation, ...)
                         if UserInputService.TouchEnabled then
                             return rotation * currentSensitivity
                         end
@@ -83,13 +82,6 @@ local function setupCameraHook()
             end)
             success = true
             hookActive = true
-        end)
-    end
-    
-    if not success then
-        RunService.RenderStepped:Connect(function()
-            if UserInputService.TouchEnabled then
-            end
         end)
     end
     
@@ -144,19 +136,19 @@ local function createGUI()
     titleFix.Parent = titleBar
 
     local titleLabel = Instance.new("TextLabel")
-    titleLabel.Text = "📱 Touch Sensitivity"
-    titleLabel.Size = UDim2.new(1, -30, 1, 0)
+    titleLabel.Text = "📱 Touch Sens"
+    titleLabel.Size = UDim2.new(1, -55, 1, 0)
     titleLabel.Position = UDim2.new(0, 10, 0, 0)
     titleLabel.BackgroundTransparency = 1
     titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    titleLabel.TextSize = 14
+    titleLabel.TextSize = 13
     titleLabel.Font = Enum.Font.SourceSansBold
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.Parent = titleBar
 
     local statusIndicator = Instance.new("Frame")
     statusIndicator.Size = UDim2.new(0, 8, 0, 8)
-    statusIndicator.Position = UDim2.new(0, 167, 0, 8.5)
+    statusIndicator.Position = UDim2.new(0, 132, 0, 8.5)
     statusIndicator.BackgroundColor3 = hookActive and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 200, 100)
     statusIndicator.BorderSizePixel = 0
     statusIndicator.Parent = titleBar
@@ -165,10 +157,22 @@ local function createGUI()
     statusCorner.CornerRadius = UDim.new(0, 4)
     statusCorner.Parent = statusIndicator
 
+    local closeButton = Instance.new("TextButton")
+    closeButton.Name = "CloseButton"
+    closeButton.Text = "×"
+    closeButton.Size = UDim2.new(0, 25, 0, 25)
+    closeButton.Position = UDim2.new(1, -25, 0, 0)
+    closeButton.BackgroundTransparency = 1
+    closeButton.TextColor3 = Color3.fromRGB(255, 100, 100)
+    closeButton.TextSize = 20
+    closeButton.Font = Enum.Font.SourceSansBold
+    closeButton.Parent = titleBar
+
     local collapseButton = Instance.new("TextButton")
+    collapseButton.Name = "CollapseButton"
     collapseButton.Text = "−"
     collapseButton.Size = UDim2.new(0, 25, 0, 25)
-    collapseButton.Position = UDim2.new(1, -25, 0, 0)
+    collapseButton.Position = UDim2.new(1, -50, 0, 0)
     collapseButton.BackgroundTransparency = 1
     collapseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
     collapseButton.TextSize = 18
@@ -349,21 +353,21 @@ local function createGUI()
         inputBox.Text = tostring(fromSlider and formatValue(value) or value)
     end
 
-    sliderButton.InputBegan:Connect(function(input)
+    table.insert(activeConnections, sliderButton.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch or 
            input.UserInputType == Enum.UserInputType.MouseButton1 then
             isDraggingSlider = true
         end
-    end)
+    end))
 
-    UserInputService.InputEnded:Connect(function(input)
+    table.insert(activeConnections, UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch or 
            input.UserInputType == Enum.UserInputType.MouseButton1 then
             isDraggingSlider = false
         end
-    end)
+    end))
 
-    RunService.Heartbeat:Connect(function()
+    table.insert(activeConnections, RunService.Heartbeat:Connect(function()
         if isDraggingSlider then
             local mousePos = UserInputService:GetMouseLocation()
             local trackPos = sliderTrack.AbsolutePosition.X
@@ -376,7 +380,7 @@ local function createGUI()
             local value = CONFIG.MIN_SENSITIVITY + percentage * (CONFIG.MAX_SENSITIVITY - CONFIG.MIN_SENSITIVITY)
             applySensitivity(value, true)
         end
-    end)
+    end))
 
     applyButton.MouseButton1Click:Connect(function()
         local value = tonumber(inputBox.Text)
@@ -406,16 +410,16 @@ local function createGUI()
     local dragStart = nil
     local startPos = nil
 
-    titleBar.InputBegan:Connect(function(input)
+    table.insert(activeConnections, titleBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch or 
            input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             dragStart = input.Position
             startPos = mainFrame.Position
         end
-    end)
+    end))
 
-    UserInputService.InputChanged:Connect(function(input)
+    table.insert(activeConnections, UserInputService.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.Touch or 
            input.UserInputType == Enum.UserInputType.MouseMovement) then
             local delta = input.Position - dragStart
@@ -426,14 +430,14 @@ local function createGUI()
                 startPos.Y.Offset + delta.Y
             )
         end
-    end)
+    end))
 
-    UserInputService.InputEnded:Connect(function(input)
+    table.insert(activeConnections, UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch or 
            input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
         end
-    end)
+    end))
 
     collapseButton.MouseButton1Click:Connect(function()
         collapsed = not collapsed
@@ -457,32 +461,19 @@ local function createGUI()
         end
     end)
 
+    closeButton.MouseButton1Click:Connect(function()
+        for _, conn in ipairs(activeConnections) do
+            if typeof(conn) == "RBXScriptConnection" then
+                conn:Disconnect()
+            end
+        end
+        activeConnections = {}
+        screenGui:Destroy()
+    end)
+
     applySensitivity(currentSensitivity, false)
     
     return screenGui
 end
 
-local gui = createGUI()
-
-if not cameraHooked then
-    spawn(function()
-        wait(1)
-        local notification = Instance.new("TextLabel")
-        notification.Text = "Failed"
-        notification.Size = UDim2.new(0, 250, 0, 30)
-        notification.Position = UDim2.new(0.5, -125, 0, 200)
-        notification.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-        notification.TextColor3 = Color3.fromRGB(255, 200, 100)
-        notification.Font = Enum.Font.SourceSans
-        notification.TextSize = 14
-        notification.BorderSizePixel = 0
-        notification.Parent = gui
-        
-        local notifCorner = Instance.new("UICorner")
-        notifCorner.CornerRadius = UDim.new(0, 6)
-        notifCorner.Parent = notification
-        
-        wait(2)
-        notification:Destroy()
-    end)
-end
+createGUI()
